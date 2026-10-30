@@ -49,7 +49,19 @@ def run_training(cfg, progress_cb=None):
 
     # Incremental feature extraction: reuse existing, append new
     existing_n = 0
-    if os.path.exists(FEATURES_PATH) and os.path.exists(LABELS_PATH):
+    # Invalidate cache if backbone or image size changed
+    meta_old = None
+    try:
+        import json as _j
+        if os.path.exists(META_PATH):
+            meta_old = _j.load(open(META_PATH))
+    except Exception:
+        meta_old = None
+    cache_valid = True
+    if meta_old is not None:
+        if meta_old.get("backbone") != backbone_name or meta_old.get("img_size") != img_size:
+            cache_valid = False
+    if os.path.exists(FEATURES_PATH) and os.path.exists(LABELS_PATH) and cache_valid:
         try:
             mm0 = np.memmap(FEATURES_PATH, dtype="float32", mode="r")
             if mm0.shape[1] == feat_dim:
@@ -58,11 +70,17 @@ def run_training(cfg, progress_cb=None):
                     existing_n = n  # fully cached
         except Exception:
             existing_n = 0
+        try:
+            del mm0
+        except Exception:
+            pass
+    else:
+        existing_n = 0
 
     if existing_n == n:
         # fully cached
         mm = np.memmap(FEATURES_PATH, dtype="float32", mode="r+", shape=(n, feat_dim))
-        label_arr = np.load(LABELS_PATH)
+        label_arr = np.load(LABELS_PATH)[:n]
     else:
         # extract from existing_n to n (append)
         transform = get_transforms(train=False, size=img_size)
@@ -96,10 +114,25 @@ def run_training(cfg, progress_cb=None):
             if progress_cb:
                 progress_cb(step, total_batches, f"extracting features {step}/{total_batches}")
         new_mm.flush()
-        # replace
+        del new_mm
+        if 'old_mm' in locals():
+            del old_mm
+        import gc
+        gc.collect()
         if os.path.exists(FEATURES_PATH):
-            os.remove(FEATURES_PATH)
-        os.replace(tmp_path, FEATURES_PATH)
+            try:
+                os.remove(FEATURES_PATH)
+            except Exception:
+                pass
+        import time
+        for _attempt in range(5):
+            try:
+                os.replace(tmp_path, FEATURES_PATH)
+                break
+            except Exception:
+                time.sleep(1)
+        else:
+            raise
         np.save(LABELS_PATH, new_labels)
         mm = np.memmap(FEATURES_PATH, dtype="float32", mode="r+", shape=(n, feat_dim))
         label_arr = np.load(LABELS_PATH)

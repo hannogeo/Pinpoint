@@ -34,7 +34,21 @@ def make_cells(lats, lngs, n_clusters):
         clat, clng = xyz_to_latlng(center_xyz[None, :])
         centers = np.column_stack([clat, clng])
         return labels, centers
-    centroids, labels = kmeans2(xyz, k, iter=50, minit="++")
+    # For very large datasets, cluster on a sample then assign all
+    if len(xyz) > 50000:
+        step = max(1, len(xyz) // 50000)
+        sample = xyz[::step]
+        centroids, _ = kmeans2(sample, k, iter=50, minit="++")
+        # assign all points to nearest centroid
+        # compute distances in chunks
+        labels = np.empty(len(xyz), dtype=int)
+        chunk = 100000
+        for i in range(0, len(xyz), chunk):
+            sl = slice(i, i + chunk)
+            d = np.linalg.norm(xyz[sl, None, :] - centroids[None, :, :], axis=2)
+            labels[sl] = np.argmin(d, axis=1)
+    else:
+        centroids, labels = kmeans2(xyz, k, iter=50, minit="++")
     centers_lat, centers_lng = xyz_to_latlng(centroids)
     centers = np.column_stack([centers_lat, centers_lng])
     return labels.astype(int), centers
