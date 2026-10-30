@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# App-generated data and trained models (large, user-specific)
+data/
+models/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Streamlit
+.streamlit/
+
+# Logs
+*.log
