@@ -1,6 +1,6 @@
 # Finder
 
-A desktop (Streamlit) app that trains an image->region model from Google Street View panoramas
+A Streamlit app that trains a region-guessing model from Google Street View panoramas
 identified by `panoId`, then guesses the location of an uploaded image and pins it on an OSM map.
 
 ## Setup
@@ -14,17 +14,20 @@ pip install -r requirements.txt
 ```bash
 streamlit run app.py
 ```
-or on Windows: double-click `run.bat`.
+or on Windows: double-click `run.bat` (or run `finder` from any folder).
 
 ## Workflow
 
-1. Training tab: upload one or more JSON files in the documented format.
-2. Click "Prepare dataset (download panos)" to fetch panoramas via `panoId` and render perspective views.
-3. Adjust training settings and click "Train model". Uses GPU (CUDA) + mixed precision when available.
-4. Usage tab: upload an image, click "Predict location". Shows predicted coordinates, confidence, and an OSM map pin.
+1. **Training tab**: upload one or more JSON files (both the original format and the variant with
+   `country`/`region`/`imageDate`/etc. are supported). Locations are merged and deduplicated by `panoId`.
+2. Click **Train model**. The app automatically downloads panoramas by `panoId`, renders perspective
+   views, and trains the model. Progress, elapsed time, and ETA are shown.
+3. **Locate tab**: upload an image, click **Predict location**. Shows coordinates (copyable),
+   confidence level, estimated error radius, and an interactive OSM map with the pin.
 
 ## Notes
 
 - Panoramas are fetched without the Google API using the `streetlevel` library.
-- Training data and models are stored under `data/` and `models/`.
-- For best results, provide thousands of locations. More geocells = finer regions.
+- Training data, cached features, and models are stored under `data/` and `models/` (gitignored).
+- For best results, provide thousands of locations spread across the target region.
+- GPU (CUDA) is used automatically when available.
