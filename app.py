@@ -141,12 +141,21 @@ with tab_train:
             }
             progress = st.progress(0)
             status = st.empty()
-            train_start = time.time()
-            def cb(step, total, msg):
+            extract_start = [None]
+            train_start = [None]
+            def cb(step, total, msg, phase="train"):
+                now = time.time()
+                if phase == "extract":
+                    if extract_start[0] is None:
+                        extract_start[0] = now
+                    elapsed = now - extract_start[0]
+                else:
+                    if train_start[0] is None:
+                        train_start[0] = now
+                    elapsed = now - train_start[0]
                 if total > 0:
                     progress.progress(min(1.0, step / total))
-                elapsed = time.time() - train_start
-                eta = (elapsed / max(1, step)) * (total - step) if step > 0 else 0
+                eta = (elapsed / max(1, step)) * (total - step) if step > 0 else 0.0
                 status.markdown(
                     f"**{msg}**<br>"
                     f"Elapsed: {elapsed:.0f}s &nbsp;|&nbsp; ETA: {eta:.0f}s &nbsp;|&nbsp; {step}/{total}",

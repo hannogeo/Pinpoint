@@ -85,7 +85,7 @@ def run_training(cfg, progress_cb=None):
         mm = np.memmap(FEATURES_PATH, dtype="float32", mode="r+", shape=(n, feat_dim))
         label_arr = np.load(LABELS_PATH)[:n]
         if progress_cb:
-            progress_cb(total_batches, global_total, "Features cached - starting training")
+            progress_cb(total_batches, total_batches, "Features cached - starting training", "extract")
     else:
         # extract from existing_n to n (append)
         transform = get_transforms(train=False, size=img_size)
@@ -118,7 +118,7 @@ def run_training(cfg, progress_cb=None):
             idx += len(f)
             step += 1
             if progress_cb:
-                progress_cb(step, global_total, f"Extracting features: {step}/{total_batches}")
+                progress_cb(step, total_batches, f"Extracting features: {step}/{total_batches}", "extract")
         new_mm.flush()
         del new_mm
         if 'old_mm' in locals():
@@ -176,12 +176,13 @@ def run_training(cfg, progress_cb=None):
             optimizer.step()
             running_loss += loss.item()
             step += 1
+            train_total = epochs * total_batches
             if progress_cb:
-                progress_cb(step, global_total, f"Training epoch {epoch+1}/{epochs} - loss {loss.item():.4f}")
+                progress_cb(step, train_total, f"Training epoch {epoch+1}/{epochs} - loss {loss.item():.4f}", "train")
         scheduler.step()
         avg_loss = running_loss / max(1, len(train_loader))
         if progress_cb:
-            progress_cb(step, global_total, f"Epoch {epoch+1}/{epochs} done - avg loss {avg_loss:.4f}")
+            progress_cb(step, train_total, f"Epoch {epoch+1}/{epochs} done - avg loss {avg_loss:.4f}", "train")
 
     # Build full model (backbone + trained head) and save
     model, _ = build_model(num_classes, backbone=backbone_name, pretrained=False)
@@ -203,5 +204,5 @@ def run_training(cfg, progress_cb=None):
     save_db(embeddings, lats_arr, lngs_arr, cells_arr)
 
     if progress_cb:
-        progress_cb(global_total, global_total, "training complete")
+        progress_cb(epochs * total_batches, epochs * total_batches, "training complete", "train")
     return {"num_classes": num_classes, "n_samples": len(samples)}
