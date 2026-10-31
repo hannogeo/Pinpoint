@@ -100,7 +100,7 @@ async def prepare_dataset(locations, views=4, zoom=2, view_size=224, keep_panos=
                     out_samples = [{"image": v, "lat": lat, "lng": lng, "panoId": pano_id} for v in expected_views]
                     done += 1
                     if progress_cb:
-                        progress_cb(done, total, f"cached {pano_id} ({len(out_samples)} views)")
+                        progress_cb(done, total, f"cached {pano_id} ({len(out_samples)} views)", True)
                     return out_samples
                 if not os.path.exists(pano_path):
                     try:
@@ -153,7 +153,7 @@ async def prepare_dataset(locations, views=4, zoom=2, view_size=224, keep_panos=
                         pass
                 done += 1
                 if progress_cb:
-                    progress_cb(done, total, f"ok {pano_id} ({len(out_samples)} views)")
+                    progress_cb(done, total, f"ok {pano_id} ({len(out_samples)} views)", False)
                 return out_samples
 
         tasks = [process(loc) for loc in locations]

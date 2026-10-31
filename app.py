@@ -99,11 +99,26 @@ with tab_train:
                 progress = st.progress(0)
                 status = st.empty()
                 prep_start = time.time()
-                def pcb(done, total, msg):
+                nc_count = 0
+                nc_time = 0.0
+                last_call = prep_start
+                def pcb(done, total, msg, cached=False):
+                    global nc_count, nc_time, last_call
+                    now = time.time()
+                    if not cached and done > 0:
+                        nc_count += 1
+                        nc_time += (now - last_call)
+                    last_call = now
                     if total > 0:
                         progress.progress(min(1.0, done / total))
-                    elapsed = time.time() - prep_start
-                    eta = (elapsed / max(1, done)) * (total - done) if done > 0 else 0
+                    elapsed = now - prep_start
+                    if nc_count > 0 and done > 0:
+                        avg_nc = nc_time / nc_count
+                        nc_ratio = nc_count / done
+                        remaining_nc = (total - done) * nc_ratio
+                        eta = avg_nc * remaining_nc
+                    else:
+                        eta = 0.0
                     status.markdown(
                     f"**{done}/{total} - {msg}**<br>"
                     f"Elapsed: {elapsed:.0f}s &nbsp;|&nbsp; ETA: {eta:.0f}s",
