@@ -60,7 +60,10 @@ with tab_train:
             except Exception as e:
                 st.error(f"Invalid JSON {uf.name}: {e}")
                 continue
-            arr = data.get("customCoordinates", data if isinstance(data, list) else [])
+            if isinstance(data, list):
+                arr = data
+            else:
+                arr = data.get("customCoordinates", [])
             for c in arr:
                 if c.get("panoId") not in existing_ids:
                     locs.append(c)
