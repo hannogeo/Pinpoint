@@ -104,7 +104,10 @@ with tab_train:
                         progress.progress(min(1.0, done / total))
                     elapsed = time.time() - prep_start
                     eta = (elapsed / max(1, done)) * (total - done) if done > 0 else 0
-                    status.text(f"{done}/{total} - {msg} | elapsed {elapsed:.0f}s | ETA {eta:.0f}s")
+                    status.markdown(
+                    f"**{done}/{total} - {msg}**<br>"
+                    f"Elapsed: {elapsed:.0f}s &nbsp;|&nbsp; ETA: {eta:.0f}s",
+                    unsafe_allow_html=True)
                 samples = prepare_dataset_sync(locs, views=4, zoom=2, view_size=224, keep_panos=False, jpeg_quality=85, progress_cb=pcb)
                 with open(SAMPLES_PATH, "w") as f:
                     json.dump(samples, f)
@@ -129,7 +132,10 @@ with tab_train:
                     progress.progress(min(1.0, step / total))
                 elapsed = time.time() - train_start
                 eta = (elapsed / max(1, step)) * (total - step) if step > 0 else 0
-                status.text(f"{msg} | elapsed {elapsed:.0f}s | ETA {eta:.0f}s")
+                status.markdown(
+                    f"**{msg}**<br>"
+                    f"Elapsed: {elapsed:.0f}s &nbsp;|&nbsp; ETA: {eta:.0f}s &nbsp;|&nbsp; {step}/{total}",
+                    unsafe_allow_html=True)
             try:
                 with st.spinner("Training..."):
                     res = run_training(cfg, progress_cb=cb)

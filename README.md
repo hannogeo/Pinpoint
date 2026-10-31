@@ -14,7 +14,7 @@ pip install -r requirements.txt
 ```bash
 streamlit run app.py
 ```
-or on Windows: double-click `run.bat` (or run `finder` from any folder).
+or on Windows: double-click `run.bat`.
 
 ## Workflow
 

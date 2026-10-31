@@ -46,6 +46,8 @@ def run_training(cfg, progress_cb=None):
     n = len(samples)
     bs = int(cfg.get("batch_size", 64))
     nw = int(cfg.get("num_workers", 0))
+    total_batches = (n + bs - 1) // bs
+    global_total = total_batches + epochs * total_batches
 
     # Incremental feature extraction: reuse existing, append new
     existing_n = 0
@@ -81,6 +83,8 @@ def run_training(cfg, progress_cb=None):
         # fully cached
         mm = np.memmap(FEATURES_PATH, dtype="float32", mode="r+", shape=(n, feat_dim))
         label_arr = np.load(LABELS_PATH)[:n]
+        if progress_cb:
+            progress_cb(total_batches, global_total, "Features cached - starting training")
     else:
         # extract from existing_n to n (append)
         transform = get_transforms(train=False, size=img_size)
@@ -99,6 +103,7 @@ def run_training(cfg, progress_cb=None):
             new_labels[:existing_n] = old_labels[:existing_n]
         idx = existing_n
         total_batches = len(loader)
+        global_total = total_batches + epochs * total_batches
         step = 0
         for imgs, cells, _, _ in loader:
             imgs = imgs.to(device, non_blocking=True)
@@ -112,7 +117,7 @@ def run_training(cfg, progress_cb=None):
             idx += len(f)
             step += 1
             if progress_cb:
-                progress_cb(step, total_batches, f"extracting features {step}/{total_batches}")
+                progress_cb(step, global_total, f"Extracting features: {step}/{total_batches}")
         new_mm.flush()
         del new_mm
         if 'old_mm' in locals():
@@ -156,12 +161,11 @@ def run_training(cfg, progress_cb=None):
     train_ds = TensorDataset(X, y)
     train_loader = DataLoader(train_ds, batch_size=bs, shuffle=True, num_workers=0, pin_memory=True)
 
-    total_steps = epochs * len(train_loader)
-    step = 0
+    step = total_batches  # extraction already done
     for epoch in range(epochs):
         head.train()
         running_loss = 0.0
-        for xb, yb in train_loader:
+        for batch_idx, (xb, yb) in enumerate(train_loader):
             xb = xb.to(device, non_blocking=True)
             yb = yb.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
@@ -173,11 +177,11 @@ def run_training(cfg, progress_cb=None):
             running_loss += loss.item()
             step += 1
             if progress_cb:
-                progress_cb(step, total_steps, f"epoch {epoch+1}/{epochs} loss {loss.item():.4f}")
+                progress_cb(step, global_total, f"Training epoch {epoch+1}/{epochs} - loss {loss.item():.4f}")
         scheduler.step()
         avg_loss = running_loss / max(1, len(train_loader))
         if progress_cb:
-            progress_cb(step, total_steps, f"epoch {epoch+1}/{epochs} done avg_loss {avg_loss:.4f}")
+            progress_cb(step, global_total, f"Epoch {epoch+1}/{epochs} done - avg loss {avg_loss:.4f}")
 
     # Build full model (backbone + trained head) and save
     model, _ = build_model(num_classes, backbone=backbone_name, pretrained=False)
@@ -199,5 +203,5 @@ def run_training(cfg, progress_cb=None):
     save_db(embeddings, lats_arr, lngs_arr, cells_arr)
 
     if progress_cb:
-        progress_cb(total_steps, total_steps, "training complete")
+        progress_cb(global_total, global_total, "training complete")
     return {"num_classes": num_classes, "n_samples": len(samples)}
