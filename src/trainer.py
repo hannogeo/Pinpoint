@@ -46,6 +46,7 @@ def run_training(cfg, progress_cb=None):
     n = len(samples)
     bs = int(cfg.get("batch_size", 64))
     nw = int(cfg.get("num_workers", 0))
+    epochs = int(cfg.get("epochs", 8))
     total_batches = (n + bs - 1) // bs
     global_total = total_batches + epochs * total_batches
 
@@ -152,7 +153,6 @@ def run_training(cfg, progress_cb=None):
 
     # Train linear head
     head = nn.Linear(feat_dim, num_classes).to(device)
-    epochs = int(cfg.get("epochs", 8))
     lr = float(cfg.get("lr", 1e-3))
     optimizer = torch.optim.AdamW(head.parameters(), lr=lr, weight_decay=1e-4)
     criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
