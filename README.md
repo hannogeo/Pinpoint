@@ -6,6 +6,8 @@ identified by `panoId`, then guesses the location of an uploaded image and pins 
 ## Setup
 
 ```bash
+git clone https://github.com/hannogeo/finder.git
+cd finder
 pip install -r requirements.txt
 ```
 
