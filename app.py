@@ -51,26 +51,31 @@ with tab_train:
 
     uploaded = st.file_uploader("Upload location JSON", type=["json"], accept_multiple_files=True)
     if uploaded:
-        locs = load_locations()
-        existing_ids = {l.get("panoId") for l in locs}
-        added = 0
-        for uf in uploaded:
-            try:
-                data = json.load(uf)
-            except Exception as e:
-                st.error(f"Invalid JSON {uf.name}: {e}")
-                continue
-            if isinstance(data, list):
-                arr = data
-            else:
-                arr = data.get("customCoordinates", [])
-            for c in arr:
-                if c.get("panoId") not in existing_ids:
-                    locs.append(c)
-                    existing_ids.add(c.get("panoId"))
-                    added += 1
-        save_locations(locs)
-        st.success(f"Added {added} new locations. Total: {len(locs)}")
+        processed = st.session_state.get("processed_uploads", set())
+        new_files = [uf for uf in uploaded if (uf.name, uf.size) not in processed]
+        if new_files:
+            locs = load_locations()
+            existing_ids = {l.get("panoId") for l in locs}
+            added = 0
+            for uf in new_files:
+                try:
+                    data = json.load(uf)
+                except Exception as e:
+                    st.error(f"Invalid JSON {uf.name}: {e}")
+                    continue
+                if isinstance(data, list):
+                    arr = data
+                else:
+                    arr = data.get("customCoordinates", [])
+                for c in arr:
+                    if c.get("panoId") not in existing_ids:
+                        locs.append(c)
+                        existing_ids.add(c.get("panoId"))
+                        added += 1
+            save_locations(locs)
+            processed = processed | {(uf.name, uf.size) for uf in new_files}
+            st.session_state["processed_uploads"] = processed
+            st.success(f"Added {added} new locations. Total: {len(locs)}")
 
     locs = load_locations()
     st.metric("Total locations", len(locs))
