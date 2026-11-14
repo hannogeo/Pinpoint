@@ -104,30 +104,28 @@ with tab_train:
                 progress = st.progress(0)
                 status = st.empty()
                 prep_start = time.time()
-                nc_count = 0
-                nc_time = 0.0
-                last_call = prep_start
-                def pcb(done, total, msg, cached=False):
-                    global nc_count, nc_time, last_call
+                first_new = [None]
+                def pcb(done, total, msg, cached=False, new_done=0, new_total=0):
                     now = time.time()
-                    if not cached and done > 0:
-                        nc_count += 1
-                        nc_time += (now - last_call)
-                    last_call = now
-                    if total > 0:
+                    if not cached and first_new[0] is None:
+                        first_new[0] = now
+                    if new_total > 0:
+                        progress.progress(min(1.0, new_done / new_total))
+                    elif total > 0:
                         progress.progress(min(1.0, done / total))
                     elapsed = now - prep_start
-                    if nc_count > 0 and done > 0:
-                        avg_nc = nc_time / nc_count
-                        nc_ratio = nc_count / done
-                        remaining_nc = (total - done) * nc_ratio
-                        eta = avg_nc * remaining_nc
+                    if new_done > 1 and new_total > new_done:
+                        per_loc = (now - first_new[0]) / (new_done - 1)
+                        eta = f"{(new_total - new_done) * per_loc:.0f}s"
+                    elif new_total > 0 and new_done >= new_total:
+                        eta = "0s"
                     else:
-                        eta = 0.0
+                        eta = "—"
                     status.markdown(
-                    f"**{done}/{total} - {msg}**<br>"
-                    f"Elapsed: {elapsed:.0f}s &nbsp;|&nbsp; ETA: {eta:.0f}s",
-                    unsafe_allow_html=True)
+                        f"**{msg}**<br>"
+                        f"Elapsed: {elapsed:.0f}s &nbsp;|&nbsp; ETA: {eta} &nbsp;|&nbsp; "
+                        f"Locations: {done}/{total} &nbsp;|&nbsp; New: {new_done}/{new_total}",
+                        unsafe_allow_html=True)
                 samples = prepare_dataset_sync(locs, views=4, zoom=2, view_size=224, keep_panos=False, jpeg_quality=85, progress_cb=pcb)
                 with open(SAMPLES_PATH, "w") as f:
                     json.dump(samples, f)

@@ -85,11 +85,20 @@ async def prepare_dataset(locations, views=4, zoom=2, view_size=224, keep_panos=
     samples = []
     total = len(locations)
     done = 0
+    # Precompute which panoramas are already fully rendered so progress/ETA can
+    # distinguish instant (cached) items from new work. One directory listing is
+    # much cheaper than stat-ing every expected view file.
+    existing_files = set(os.listdir(IMAGES_DIR))
+    cached_ids = {loc["panoId"] for loc in locations if all(
+        f"{loc['panoId']}_v{i}.jpg" in existing_files for i in range(views)
+    )}
+    new_total = sum(1 for loc in locations if loc["panoId"] not in cached_ids)
+    new_done = 0
     sem = asyncio.Semaphore(8)
 
     async with aiohttp.ClientSession() as session:
         async def process(loc):
-            nonlocal done
+            nonlocal done, new_done
             async with sem:
                 pano_id = loc["panoId"]
                 pano_path = os.path.join(IMAGES_DIR, f"{pano_id}.jpg")
@@ -100,29 +109,32 @@ async def prepare_dataset(locations, views=4, zoom=2, view_size=224, keep_panos=
                     out_samples = [{"image": v, "lat": lat, "lng": lng, "panoId": pano_id} for v in expected_views]
                     done += 1
                     if progress_cb:
-                        progress_cb(done, total, f"cached {pano_id} ({len(out_samples)} views)", True)
+                        progress_cb(done, total, f"cached {pano_id}", True, new_done, new_total)
                     return out_samples
                 if not os.path.exists(pano_path):
                     try:
                         pano = await sl_sv.find_panorama_by_id_async(pano_id, session)
                         if pano is None:
                             done += 1
+                            new_done += 1
                             if progress_cb:
-                                progress_cb(done, total, f"skip {pano_id}")
+                                progress_cb(done, total, f"skip {pano_id}", False, new_done, new_total)
                             return []
                         await sl_sv.download_panorama_async(pano, pano_path, session, zoom=zoom)
                     except Exception as e:
                         done += 1
+                        new_done += 1
                         if progress_cb:
-                            progress_cb(done, total, f"err {pano_id}: {e}")
+                            progress_cb(done, total, f"err {pano_id}: {e}", False, new_done, new_total)
                         return []
                 # load pano
                 try:
                     img = Image.open(pano_path)
                 except Exception:
                     done += 1
+                    new_done += 1
                     if progress_cb:
-                        progress_cb(done, total, f"badimg {pano_id}")
+                        progress_cb(done, total, f"badimg {pano_id}", False, new_done, new_total)
                     return []
                 lat = float(loc["lat"])
                 lng = float(loc["lng"])
@@ -152,8 +164,9 @@ async def prepare_dataset(locations, views=4, zoom=2, view_size=224, keep_panos=
                     except Exception:
                         pass
                 done += 1
+                new_done += 1
                 if progress_cb:
-                    progress_cb(done, total, f"ok {pano_id} ({len(out_samples)} views)", False)
+                    progress_cb(done, total, f"ok {pano_id}", False, new_done, new_total)
                 return out_samples
 
         tasks = [process(loc) for loc in locations]
