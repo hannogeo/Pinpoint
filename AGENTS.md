@@ -1,7 +1,7 @@
-# AGENTS.md — Finder
+# AGENTS.md — Pinpoint
 
 ## Project overview
-Finder is a Streamlit app that trains a region-guessing model from Google Street View panoramas
+Pinpoint is a Streamlit app that trains a region-guessing model from Google Street View panoramas
 identified by `panoId`, then predicts the location of an uploaded image and pins it on an OSM map.
 
 ## Structure
@@ -26,7 +26,11 @@ identified by `panoId`, then predicts the location of an uploaded image and pins
 
 ## Running
 - Install: `pip install -r requirements.txt`
-- Run: `streamlit run app.py` (or `finder` on this machine).
+- Run: `streamlit run app.py` (or `pinpoint` on this machine).
+
+## Git rules
+- **Never commit or push unless the user explicitly asks.** Finish and verify the changes, then stop and wait for instructions.
+- Do not create branches, tags, or rewrite history unless asked.
 
 ## Commit messages
 - Always use Conventional Commits format: `type(scope): short description`

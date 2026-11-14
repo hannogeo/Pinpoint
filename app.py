@@ -20,8 +20,8 @@ from src.trainer import run_training
 from src.predictor import load_model, predict
 from src.maps import static_map, leaflet_html, training_map_html
 
-st.set_page_config(page_title="Finder", layout="wide")
-st.title("Finder")
+st.set_page_config(page_title="Pinpoint", layout="wide")
+st.title("Pinpoint")
 
 # ---- helpers ----
 def load_locations():

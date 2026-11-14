@@ -1,4 +1,4 @@
-# Finder
+# Pinpoint
 
 A Streamlit app that trains a region-guessing model from Google Street View panoramas
 identified by `panoId`, then guesses the location of an uploaded image and pins it on an OSM map.
@@ -6,8 +6,8 @@ identified by `panoId`, then guesses the location of an uploaded image and pins 
 ## Setup
 
 ```bash
-git clone https://github.com/hannogeo/finder.git
-cd finder
+git clone https://github.com/hannogeo/pinpoint.git
+cd pinpoint
 pip install -r requirements.txt
 ```
 
@@ -16,7 +16,7 @@ pip install -r requirements.txt
 ```bash
 streamlit run app.py
 ```
-or on Windows: double-click `run.bat`.
+or double-click `run.bat`.
 
 ## Workflow
 
@@ -33,3 +33,7 @@ or on Windows: double-click `run.bat`.
 - Training data, cached features, and models are stored under `data/` and `models/` (gitignored).
 - For best results, provide thousands of locations spread across the target region.
 - GPU (CUDA) is used automatically when available.
+
+## License
+
+MIT - see [LICENSE](LICENSE).
