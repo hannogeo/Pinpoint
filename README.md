@@ -6,8 +6,8 @@ identified by `panoId`, then guesses the location of an uploaded image and pins 
 ## Setup
 
 ```bash
-git clone https://github.com/hannogeo/pinpoint.git
-cd pinpoint
+git clone https://github.com/hannogeo/Pinpoint.git
+cd Pinpoint
 pip install -r requirements.txt
 ```
 
