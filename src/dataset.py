@@ -6,6 +6,8 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+from .config import IMAGES_DIR
+
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
@@ -39,7 +41,14 @@ class GeoDataset(Dataset):
 
     def __getitem__(self, idx):
         s = self.samples[idx]
-        img = Image.open(s["image"]).convert("RGB")
+        path = s["image"]
+        if not os.path.exists(path):
+            # samples.json may predate a folder rename/move; the image itself
+            # is still in the project's images directory.
+            alt = os.path.join(IMAGES_DIR, os.path.basename(path))
+            if os.path.exists(alt):
+                path = alt
+        img = Image.open(path).convert("RGB")
         if self.transform:
             img = self.transform(img)
         cell = int(s["cell"])

@@ -11,7 +11,8 @@ identified by `panoId`, then predicts the location of an uploaded image and pins
   - `downloader.py` / `downloader_sync.py` — async panorama download + perspective view rendering.
   - `dataset.py` — torch Dataset + transforms.
   - `geo.py` — spherical KMeans geocells.
-  - `model.py` — timm backbone + linear head.
+  - `model.py` — timm backbone + CosFace/ArcFace projection head + embedding DB helpers.
+  - `uncertainty.py` — weighted retrieval stats, 80% radius, confidence calibration.
   - `trainer.py` — cached-feature training pipeline.
   - `predictor.py` — inference, kNN pin, confidence, estimated error.
   - `maps.py` — static OSM tiles + Leaflet HTML.

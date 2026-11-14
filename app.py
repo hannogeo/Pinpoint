@@ -132,7 +132,7 @@ with tab_train:
                 progress.progress(1.0)
                 status.text(f"Done. {len(samples)} samples created.")
             cfg = {
-                "epochs": 8,
+                "epochs": 16,
                 "batch_size": 32,
                 "lr": 1e-3,
                 "backbone_lr": 1e-4,
@@ -216,12 +216,27 @@ with tab_locate:
                 res = st.session_state.get("last_res")
                 if res is not None:
                     st.code(f"{res['lat']:.6f}, {res['lng']:.6f}", language=None)
-                    st.write(f"**Confidence:** {res['confidence']*100:.1f}% ({res['confidence_band']})")
-                    st.write(f"**Estimated error:** ~{res['estimated_error_km']:.0f} km")
+                    st.write(f"**Confidence:** {res['confidence']*100:.0f}% ({res['confidence_band']})")
+                    st.caption(
+                        "Estimated chance the true location is within 100 km of the pin"
+                        + (" (calibrated on held-out panoramas)."
+                           if res.get("confidence_calibrated") else ".")
+                    )
+                    if res.get("p_within_25km") is not None:
+                        st.caption(
+                            f"Retrieval mass: {res['p_within_25km']*100:.0f}% within 25 km, "
+                            f"{res['p_within_100km']*100:.0f}% within 100 km, "
+                            f"{res['p_within_500km']*100:.0f}% within 500 km."
+                        )
+                    st.write(f"**Estimated error:** ~{res['estimated_error_km']:.0f} km (80% radius)")
             res = st.session_state.get("last_res")
             if res is not None:
                 try:
                     import streamlit.components.v1 as components
-                    components.html(leaflet_html(res["lat"], res["lng"]), height=520)
+                    components.html(
+                        leaflet_html(res["lat"], res["lng"],
+                                     radius_km=res.get("estimated_error_km")),
+                        height=520,
+                    )
                 except Exception as e:
                     st.warning(f"Map render failed: {e}")

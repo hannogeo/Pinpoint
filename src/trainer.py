@@ -10,6 +10,7 @@ from .config import (DATA_DIR, SAMPLES_PATH, MODEL_PATH, META_PATH, DB_PATH,
 from .model import build_model, save_meta, save_db
 from .dataset import GeoDataset, get_transforms
 from .geo import make_cells
+from .uncertainty import calibrate_radius
 
 
 FEATURES_PATH = os.path.join(DATA_DIR, "features.npy")
@@ -66,24 +67,21 @@ def run_training(cfg, progress_cb=None):
             cache_valid = False
     if os.path.exists(FEATURES_PATH) and os.path.exists(LABELS_PATH) and cache_valid:
         try:
-            mm0 = np.memmap(FEATURES_PATH, dtype="float32", mode="r")
-            if mm0.shape[1] == feat_dim:
-                existing_n = min(mm0.shape[0], n)
-                if existing_n == n:
-                    existing_n = n  # fully cached
+            # features.npy is a raw memmap (no .npy header), so the row count
+            # comes from the file size rather than from an array shape.
+            rows = os.path.getsize(FEATURES_PATH) // (4 * int(feat_dim))
+            existing_n = min(rows, n)
         except Exception:
             existing_n = 0
-        try:
-            del mm0
-        except Exception:
-            pass
     else:
         existing_n = 0
 
     if existing_n == n:
         # fully cached
         mm = np.memmap(FEATURES_PATH, dtype="float32", mode="r+", shape=(n, feat_dim))
-        label_arr = np.load(LABELS_PATH)[:n]
+        # Cells were just recomputed deterministically; the cached *features*
+        # are label-independent, so use these labels rather than stale ones.
+        label_arr = np.asarray(labels, dtype=np.int64)
         if progress_cb:
             progress_cb(total_batches, total_batches, "Features cached - starting training", "extract")
     else:
@@ -141,68 +139,157 @@ def run_training(cfg, progress_cb=None):
             raise
         np.save(LABELS_PATH, new_labels)
         mm = np.memmap(FEATURES_PATH, dtype="float32", mode="r+", shape=(n, feat_dim))
-        label_arr = np.load(LABELS_PATH)
+        label_arr = np.asarray(labels, dtype=np.int64)
     X = torch.from_numpy(mm).float()
     y = torch.from_numpy(label_arr).long()
 
-    # Class weights
+    # Class weights (inverse sqrt frequency) keep rarely visited cells visible.
     counts = np.bincount(label_arr, minlength=num_classes).astype(np.float64)
     weights = 1.0 / np.sqrt(counts + 1.0)
     weights = weights / weights.mean()
     class_weights = torch.tensor(weights, dtype=torch.float32).to(device)
 
-    # Train linear head
-    head = nn.Linear(feat_dim, num_classes).to(device)
+    head_type = cfg.get("head_type", "arcface")
+    emb_dim = int(cfg.get("emb_dim", 512))
+    arc_scale = float(cfg.get("arcface_scale", 30.0))
+    arc_margin = float(cfg.get("arcface_margin", 0.2))
     lr = float(cfg.get("lr", 1e-3))
-    optimizer = torch.optim.AdamW(head.parameters(), lr=lr, weight_decay=1e-4)
-    criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     train_ds = TensorDataset(X, y)
-    train_loader = DataLoader(train_ds, batch_size=bs, shuffle=True, num_workers=0, pin_memory=True)
+    # Head training uses cached features, so big batches are both fast and
+    # stable; the extraction batch size stays small for image loading.
+    train_bs = int(cfg.get("train_batch_size", 4096))
+    train_loader = DataLoader(train_ds, batch_size=train_bs, shuffle=True, num_workers=0, pin_memory=True)
 
-    step = total_batches  # extraction already done
-    for epoch in range(epochs):
-        head.train()
-        running_loss = 0.0
-        for batch_idx, (xb, yb) in enumerate(train_loader):
-            xb = xb.to(device, non_blocking=True)
-            yb = yb.to(device, non_blocking=True)
-            optimizer.zero_grad(set_to_none=True)
-            logits = head(xb)
-            loss = criterion(logits, yb)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(head.parameters(), 1.0)
-            optimizer.step()
-            running_loss += loss.item()
-            step += 1
-            train_total = epochs * total_batches
+    step = 0  # head-training steps
+    train_total = epochs * max(1, len(train_loader))
+
+    if head_type == "arcface":
+        # Metric-learning head: project the frozen backbone features into a
+        # compact, geographically meaningful embedding (CosFace margin), so
+        # the kNN database is organised by location instead of by looks.
+        proj = nn.Linear(feat_dim, emb_dim, bias=False).to(device)
+        weight = nn.Parameter(torch.empty(num_classes, emb_dim, device=device))
+        nn.init.xavier_uniform_(weight)
+        params = list(proj.parameters()) + [weight]
+        optimizer = torch.optim.AdamW(params, lr=lr, weight_decay=1e-4)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+        for epoch in range(epochs):
+            proj.train()
+            running_loss = 0.0
+            for batch_idx, (xb, yb) in enumerate(train_loader):
+                xb = xb.to(device, non_blocking=True)
+                yb = yb.to(device, non_blocking=True)
+                z = torch.nn.functional.normalize(proj(xb), dim=1)
+                cos = z @ torch.nn.functional.normalize(weight, dim=1).t()
+                # Additive angular margin: pulls same-cell samples together and
+                # pushes everything else apart, which is what retrieval needs.
+                cos = cos - arc_margin * torch.nn.functional.one_hot(
+                    yb, num_classes).float()
+                loss = torch.nn.functional.cross_entropy(
+                    arc_scale * cos, yb, weight=class_weights)
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(params, 1.0)
+                optimizer.step()
+                running_loss += loss.item()
+                step += 1
+                if progress_cb:
+                    progress_cb(step, train_total, f"Training epoch {epoch+1}/{epochs} - loss {loss.item():.4f}", "train")
+            scheduler.step()
+            avg_loss = running_loss / max(1, len(train_loader))
             if progress_cb:
-                progress_cb(step, train_total, f"Training epoch {epoch+1}/{epochs} - loss {loss.item():.4f}", "train")
-        scheduler.step()
-        avg_loss = running_loss / max(1, len(train_loader))
-        if progress_cb:
-            progress_cb(step, train_total, f"Epoch {epoch+1}/{epochs} done - avg loss {avg_loss:.4f}", "train")
+                progress_cb(step, train_total, f"Epoch {epoch+1}/{epochs} done - avg loss {avg_loss:.4f}", "train")
+    else:
+        head = nn.Linear(feat_dim, num_classes).to(device)
+        optimizer = torch.optim.AdamW(head.parameters(), lr=lr, weight_decay=1e-4)
+        criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.1)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+
+        for epoch in range(epochs):
+            head.train()
+            running_loss = 0.0
+            for batch_idx, (xb, yb) in enumerate(train_loader):
+                xb = xb.to(device, non_blocking=True)
+                yb = yb.to(device, non_blocking=True)
+                optimizer.zero_grad(set_to_none=True)
+                logits = head(xb)
+                loss = criterion(logits, yb)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(head.parameters(), 1.0)
+                optimizer.step()
+                running_loss += loss.item()
+                step += 1
+                if progress_cb:
+                    progress_cb(step, train_total, f"Training epoch {epoch+1}/{epochs} - loss {loss.item():.4f}", "train")
+            scheduler.step()
+            avg_loss = running_loss / max(1, len(train_loader))
+            if progress_cb:
+                progress_cb(step, train_total, f"Epoch {epoch+1}/{epochs} done - avg loss {avg_loss:.4f}", "train")
 
     # Build full model (backbone + trained head) and save
-    model, _ = build_model(num_classes, backbone=backbone_name, pretrained=False)
+    model, _ = build_model(num_classes, backbone=backbone_name, pretrained=False,
+                           emb_dim=emb_dim, head_type=head_type, scale=arc_scale)
     model.backbone.load_state_dict(backbone.state_dict())
-    model.head.load_state_dict(head.state_dict())
-    model = model.to(device)
+    if head_type == "arcface":
+        model.proj.load_state_dict(proj.state_dict())
+        model.weight.data.copy_(weight.data)
+    else:
+        model.head.load_state_dict(head.state_dict())
+    model = model.to(device).eval()
 
     torch.save({"state_dict": model.state_dict(), "num_classes": num_classes,
-                "backbone": backbone_name, "feat_dim": feat_dim, "img_size": img_size}, MODEL_PATH)
+                "backbone": backbone_name, "feat_dim": feat_dim, "img_size": img_size,
+                "head_type": head_type, "emb_dim": int(model.emb_dim),
+                "arcface_scale": arc_scale}, MODEL_PATH)
     meta = {"centers": centers.tolist(), "num_classes": num_classes,
-            "backbone": backbone_name, "img_size": img_size}
+            "backbone": backbone_name, "img_size": img_size,
+            "head_type": head_type, "emb_dim": int(model.emb_dim),
+            "arcface_scale": arc_scale}
     save_meta(meta)
 
-    # Embedding DB from cached features (normalized)
-    embeddings = torch.nn.functional.normalize(X, dim=1).numpy().astype("float32")
+    # Embedding DB from cached features (normalized, in the trained space).
+    embeddings = np.empty((n, int(model.emb_dim)), dtype=np.float32)
+    for start in range(0, n, 8192):
+        stop = min(start + 8192, n)
+        with torch.no_grad():
+            z = model.embed_features(X[start:stop].to(device, non_blocking=True))
+        embeddings[start:stop] = z.cpu().numpy()
     lats_arr = np.array(lats, dtype=np.float64)
     lngs_arr = np.array(lngs, dtype=np.float64)
     cells_arr = np.array(labels, dtype=np.int64)
     save_db(embeddings, lats_arr, lngs_arr, cells_arr)
 
+    # Calibrate the uncertainty radius so the reported 80% radius really covers
+    # ~80% of held-out panoramas (leave-one-panorama-out evaluation).
     if progress_cb:
-        progress_cb(epochs * total_batches, epochs * total_batches, "training complete", "train")
+        progress_cb(train_total, train_total,
+                    "Calibrating confidence...", "train")
+
+    def _probs_for(emb_batch):
+        with torch.no_grad():
+            z = torch.from_numpy(np.ascontiguousarray(emb_batch)).to(device)
+            logits = model.logits_from_emb(z)
+            return torch.softmax(logits, dim=1).cpu().numpy()
+
+    try:
+        pano_ids = [s.get("panoId") or f"sample-{i}" for i, s in enumerate(samples)]
+        calib = calibrate_radius(
+            embeddings, lats_arr, lngs_arr, cells_arr, pano_ids, _probs_for,
+            sample_n=int(cfg.get("calib_samples", 400)),
+        )
+    except Exception:
+        calib = None
+    if calib is not None:
+        meta["radius_scale"] = calib["scale"]
+        meta["calibration"] = {k: v for k, v in calib.items()
+                               if k not in ("confidence_x", "confidence_y")}
+        if calib.get("confidence_x"):
+            meta["confidence_map"] = {"x": calib["confidence_x"],
+                                      "y": calib["confidence_y"]}
+        save_meta(meta)
+
+    if progress_cb:
+        progress_cb(train_total, train_total, "training complete", "train")
     return {"num_classes": num_classes, "n_samples": len(samples)}
+

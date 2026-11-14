@@ -50,7 +50,31 @@ def static_map(lat, lng, z=15, size=512):
     return cropped
 
 
-def leaflet_html(lat, lng, zoom=15):
+def leaflet_html(lat, lng, zoom=None, radius_km=None):
+    if zoom is None:
+        if not radius_km:
+            zoom = 15
+        elif radius_km <= 2:
+            zoom = 14
+        elif radius_km <= 10:
+            zoom = 12
+        elif radius_km <= 40:
+            zoom = 10
+        elif radius_km <= 150:
+            zoom = 8
+        elif radius_km <= 600:
+            zoom = 6
+        elif radius_km <= 2500:
+            zoom = 4
+        else:
+            zoom = 3
+    circle_js = ""
+    if radius_km and radius_km > 0:
+        circle_js = (
+            f"L.circle([{lat}, {lng}], {{radius: {radius_km * 1000:.0f}, "
+            "color: '#d6336c', weight: 2, opacity: 0.8, "
+            "fillColor: '#d6336c', fillOpacity: 0.08}).addTo(map);"
+        )
     return f"""<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8">
@@ -64,6 +88,7 @@ var map = L.map('map').setView([{lat}, {lng}], {zoom});
 L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
   maxZoom: 19, attribution: '&copy; OpenStreetMap'
 }}).addTo(map);
+{circle_js}
 L.marker([{lat}, {lng}]).addTo(map).bindPopup('Predicted location').openPopup();
 </script>
 </body></html>"""
